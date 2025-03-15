@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
 mod leveled;
 mod simple_leveled;
 mod tiered;
@@ -161,6 +158,13 @@ impl LsmStorageInner {
     }
 
     fn trigger_flush(&self) -> Result<()> {
+        let flush = {
+            let guard = self.state.read();
+            guard.imm_memtables.len() >= self.options.num_memtable_limit
+        };
+        if flush {
+            self.force_flush_next_imm_memtable()?;
+        }
         Ok(())
     }
 

@@ -17,7 +17,9 @@ use std::{os::linux::raw, path::Path};
 
 use anyhow::Result;
 use bytes::BufMut;
+use farmhash::{fingerprint32, FarmHasher};
 
+use super::bloom::Bloom;
 use super::{BlockMeta, FileObject, SsTable};
 use crate::{
     block::BlockBuilder,
@@ -33,6 +35,7 @@ pub struct SsTableBuilder {
     data: Vec<u8>,
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
+    hashes: Vec<u32>,
 }
 
 impl SsTableBuilder {
@@ -45,6 +48,7 @@ impl SsTableBuilder {
             data: Vec::new(),
             meta: Vec::new(),
             block_size,
+            hashes: Vec::new(),
         }
     }
 
@@ -57,6 +61,7 @@ impl SsTableBuilder {
             if self.first_key.is_empty() {
                 self.first_key.set_from_slice(key);
             }
+            self.hashes.push(farmhash::fingerprint32(key.raw_ref()));
             self.last_key.set_from_slice(key);
             return;
         }
@@ -96,6 +101,15 @@ impl SsTableBuilder {
         let meta_offset = buf.len();
         BlockMeta::encode_block_meta(&self.meta, &mut buf);
         buf.put_u32(meta_offset as u32);
+
+        let bloom_offset = buf.len();
+        let bloom_filter = Bloom::build_from_key_hashes(
+            &self.hashes,
+            Bloom::bloom_bits_per_key(self.hashes.len(), 0.01),
+        );
+        bloom_filter.encode(&mut buf);
+        buf.put_u32(bloom_offset as u32);
+
         let file = FileObject::create(path.as_ref(), buf)?;
         Ok(SsTable {
             file,
@@ -105,7 +119,7 @@ impl SsTableBuilder {
             block_meta_offset: meta_offset,
             id,
             block_cache,
-            bloom: None,
+            bloom: Some(bloom_filter),
             max_ts: 0,
         })
     }

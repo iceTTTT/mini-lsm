@@ -433,8 +433,6 @@ impl LsmStorageInner {
                 leveled_tables,
                 KeySlice::from_slice(key),
             )?));
-            // only support l1 now.
-            break;
         }
 
         let two_merge_iter =
@@ -643,8 +641,6 @@ impl LsmStorageInner {
                 Bound::Unbounded => SstConcatIterator::create_and_seek_to_first(level_tables)?,
             };
             level_iters.push(Box::new(level_iter));
-            // only support l1 now.
-            break;
         }
 
         let two_merge_iter = TwoMergeIterator::create(mem_merge_iterator, sst0_merge_iterator)?;

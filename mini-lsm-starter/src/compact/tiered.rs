@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+use std::usize;
+
 use serde::{Deserialize, Serialize};
 
-use crate::lsm_storage::LsmStorageState;
+use crate::{iterators, lsm_storage::LsmStorageState};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TieredCompactionTask {
@@ -42,17 +45,93 @@ impl TieredCompactionController {
 
     pub fn generate_compaction_task(
         &self,
-        _snapshot: &LsmStorageState,
+        snapshot: &LsmStorageState,
     ) -> Option<TieredCompactionTask> {
-        unimplemented!()
+        assert!(snapshot.l0_sstables.is_empty(), "tired compaction has no ");
+        if self.options.num_tiers > snapshot.levels.len() {
+            return None;
+        }
+        // space amplification
+        let mut upper_size = 0;
+        for tier_id in 0..snapshot.levels.len() - 1 {
+            let (_, tier) = snapshot.levels.get(tier_id).unwrap();
+            upper_size += tier.len();
+        }
+        if (upper_size as f64 / snapshot.levels.last().unwrap().1.len() as f64) >
+                (self.options.max_size_amplification_percent as f64 / 100.0)
+        {
+            return Some(
+                TieredCompactionTask { 
+                    tiers: snapshot.levels.clone(),
+                    bottom_tier_included: true, 
+                }
+            );
+        }
+        // size ratio
+        let mut pre_size = 0;
+        let size_trigger = (self.options.size_ratio as f64 + 100.0) / 100.0;
+        for tier_id in 0..snapshot.levels.len() - 1 {
+            let (_, upper) = snapshot.levels.get(tier_id).unwrap();
+            pre_size += upper.len();
+            let (_, lower) = snapshot.levels.get(tier_id + 1).unwrap();
+            let lower_size = lower.len();
+            if (lower_size as f64 / pre_size as f64) > size_trigger &&
+                tier_id + 1 > self.options.min_merge_width 
+             {
+                return Some(
+                    TieredCompactionTask { 
+                        tiers: snapshot
+                        .levels
+                        .iter()
+                        .take(tier_id + 1)
+                        .cloned()
+                        .collect::<Vec<_>>(), 
+                        bottom_tier_included: false, 
+                    }
+                );
+            }
+        }
+        // reduce runs
+        let compact_num = snapshot.levels.len().min(self.options.max_merge_width.unwrap_or(usize::MAX));
+        Some(
+            TieredCompactionTask { 
+                tiers: snapshot
+                .levels
+                .iter() 
+                .take(compact_num)
+                .cloned()
+                .collect::<Vec<_>>(),
+                bottom_tier_included: compact_num >= snapshot.levels.len(), }
+        )
     }
 
     pub fn apply_compaction_result(
         &self,
-        _snapshot: &LsmStorageState,
-        _task: &TieredCompactionTask,
-        _output: &[usize],
+        snapshot: &LsmStorageState,
+        task: &TieredCompactionTask,
+        output: &[usize],
     ) -> (LsmStorageState, Vec<usize>) {
-        unimplemented!()
+        let mut snapshot = snapshot.clone();
+        let mut sst_to_remove = Vec::new();
+        let mut remove_map = task.tiers.iter().map(|(x,y)|(*x,y)).collect::<HashMap<_,_>>();
+        let mut new_levels = Vec::new();
+        let mut added_new = false;
+        for (id, iter) in &snapshot.levels {
+            if let Some(pend_delete_iter) = remove_map.remove(id) {
+                sst_to_remove.extend(pend_delete_iter);
+            } else {
+                new_levels.push((*id, iter.clone()));
+            }
+
+            if remove_map.is_empty() && !added_new {
+                added_new = true;
+                new_levels.push((output[0], output.to_vec()));
+            }
+        }
+        if !remove_map.is_empty() {
+            unreachable!("some tiers not found??");
+        }
+        snapshot.levels = new_levels;
+        (snapshot, sst_to_remove)
     }
 }

@@ -205,6 +205,13 @@ impl LsmStorageInner {
                 lower_level: _,
                 lower_level_sst_ids,
                 ..
+            }) |
+            CompactionTask::Leveled(LeveledCompactionTask {
+                upper_level,
+                upper_level_sst_ids,
+                lower_level: _,
+                lower_level_sst_ids,
+                ..
             }) => {
                 match upper_level {
                     None => {
@@ -239,6 +246,21 @@ impl LsmStorageInner {
                         self.generate_new_sst_from_iter(iter, task.compact_to_bottom_level())
                     }
                 }
+            }
+            CompactionTask::Tiered(TieredCompactionTask{
+                tiers,
+                ..
+            }) => {
+                let mut con_iters = Vec::new();
+                for (_, tier) in tiers {
+                    let mut tables = Vec::new();
+                    for tid in tier {
+                        let table = state.sstables.get(tid).unwrap().clone();
+                        tables.push(table);
+                    }
+                    con_iters.push(Box::new(SstConcatIterator::create_and_seek_to_first(tables)?));
+                }
+                self.generate_new_sst_from_iter(MergeIterator::create(con_iters), task.compact_to_bottom_level())
             }
             _ => {
                 panic!("not impl")

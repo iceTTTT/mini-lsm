@@ -34,6 +34,7 @@ use crate::iterators::two_merge_iterator::TwoMergeIterator;
 use crate::iterators::StorageIterator;
 use crate::key::KeySlice;
 use crate::lsm_storage::{LsmStorageInner, LsmStorageState};
+use crate::manifest::ManifestRecord;
 use crate::table::{SsTable, SsTableBuilder, SsTableIterator};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -283,7 +284,6 @@ impl LsmStorageInner {
             l1_sstables: l1_tables.clone(),
         };
         let new_ssts = self.compact(&task)?;
-
         {
             let state_lock = self.state_lock.lock();
             let mut state = self.state.read().as_ref().clone();
@@ -309,6 +309,9 @@ impl LsmStorageInner {
                 .copied()
                 .collect::<Vec<_>>();
             *self.state.write() = Arc::new(state);
+            self.sync_dir()?;
+            self.manifest.as_ref().unwrap().add_record(&state_lock, 
+                ManifestRecord::Compaction(task, new_l1.clone()))?;
         }
         // remove files. because no belongs to state.
         for id in l0_tables.iter().chain(l1_tables.iter()) {
@@ -346,12 +349,16 @@ impl LsmStorageInner {
             let mut state = self.state.write();
             *state = Arc::new(snapshot);
             drop(state);
+            self.sync_dir()?;
+            self.manifest.as_ref().unwrap().add_record(&state_lock, ManifestRecord::Compaction(task, 
+                new_table_ids.clone()))?;
             remove_table_ids
         };
         // remove files
         for id in &remove_table_ids {
             std::fs::remove_file(self.path_of_sst(*id))?;
         }
+        self.sync_dir()?;
         Ok(())
     }
 

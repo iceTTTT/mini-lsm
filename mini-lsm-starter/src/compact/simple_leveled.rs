@@ -61,24 +61,26 @@ impl SimpleLeveledCompactionController {
         }
         // check l0 trigger
         if levels_len[0] >= self.options.level0_file_num_compaction_trigger {
-            return Some(SimpleLeveledCompactionTask { 
-                upper_level: None, 
-                upper_level_sst_ids: snapshot.l0_sstables.clone(), 
-                lower_level: 1, 
-                lower_level_sst_ids: snapshot.levels[0].1.clone(), 
-                is_lower_level_bottom_level: self.options.max_levels == 1, })
+            return Some(SimpleLeveledCompactionTask {
+                upper_level: None,
+                upper_level_sst_ids: snapshot.l0_sstables.clone(),
+                lower_level: 1,
+                lower_level_sst_ids: snapshot.levels[0].1.clone(),
+                is_lower_level_bottom_level: self.options.max_levels == 1,
+            });
         }
         // check level
         for upper_level in 1..self.options.max_levels {
-            if (levels_len[upper_level + 1] as f64 / levels_len[upper_level] as f64)  
-                < (self.options.size_ratio_percent as f64 / 100.0) 
+            if (levels_len[upper_level + 1] as f64 / levels_len[upper_level] as f64)
+                < (self.options.size_ratio_percent as f64 / 100.0)
             {
-                return Some(SimpleLeveledCompactionTask { 
-                upper_level: Some(upper_level), 
-                upper_level_sst_ids: snapshot.levels[upper_level - 1].1.clone(), 
-                lower_level: upper_level + 1, 
-                lower_level_sst_ids: snapshot.levels[upper_level].1.clone(), 
-                is_lower_level_bottom_level: self.options.max_levels == (upper_level + 1)  })
+                return Some(SimpleLeveledCompactionTask {
+                    upper_level: Some(upper_level),
+                    upper_level_sst_ids: snapshot.levels[upper_level - 1].1.clone(),
+                    lower_level: upper_level + 1,
+                    lower_level_sst_ids: snapshot.levels[upper_level].1.clone(),
+                    is_lower_level_bottom_level: self.options.max_levels == (upper_level + 1),
+                });
             }
         }
         None
@@ -103,18 +105,23 @@ impl SimpleLeveledCompactionController {
             Some(upper_level) => {
                 sst_to_remove.extend(&snapshot.levels[task.lower_level - 1].1);
                 sst_to_remove.extend(&snapshot.levels[upper_level - 1].1);
-                snapshot.levels[upper_level - 1].1.clear(); 
+                snapshot.levels[upper_level - 1].1.clear();
                 snapshot.levels[task.lower_level - 1].1 = output.to_vec();
             }
             None => {
                 sst_to_remove.extend(&snapshot.levels[task.lower_level - 1].1);
                 sst_to_remove.extend(&task.upper_level_sst_ids);
-                let mut old_l0_map = task.upper_level_sst_ids.iter().copied().collect::<HashSet<_>>();
-                snapshot.l0_sstables = snapshot.l0_sstables
-                .iter()
-                .filter(|t| !old_l0_map.remove(t))
-                .copied()
-                .collect::<Vec<_>>();
+                let mut old_l0_map = task
+                    .upper_level_sst_ids
+                    .iter()
+                    .copied()
+                    .collect::<HashSet<_>>();
+                snapshot.l0_sstables = snapshot
+                    .l0_sstables
+                    .iter()
+                    .filter(|t| !old_l0_map.remove(t))
+                    .copied()
+                    .collect::<Vec<_>>();
                 snapshot.levels[task.lower_level - 1].1 = output.to_vec();
             }
         }

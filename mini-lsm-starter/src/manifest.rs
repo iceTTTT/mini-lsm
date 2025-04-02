@@ -37,22 +37,24 @@ pub enum ManifestRecord {
 
 impl Manifest {
     pub fn create(path: impl AsRef<Path>) -> Result<Self> {
-        Ok (
-            Self {
-                file: Arc::new(Mutex::new(
-                  OpenOptions::new()
-                      .read(true)
-                      .create_new(true)
-                      .write(true)
-                      .open(path)
-                      .context("failed to open manifest path")?,
-                )),   
-            }
-        )
+        Ok(Self {
+            file: Arc::new(Mutex::new(
+                OpenOptions::new()
+                    .read(true)
+                    .create_new(true)
+                    .write(true)
+                    .open(path)
+                    .context("failed to open manifest path")?,
+            )),
+        })
     }
 
     pub fn recover(path: impl AsRef<Path>) -> Result<(Self, Vec<ManifestRecord>)> {
-        let mut file = OpenOptions::new().read(true).append(true).open(path).context("failed to reopen manifest path")?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .open(path)
+            .context("failed to reopen manifest path")?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)?;
         let mut buf = buf.as_slice();
@@ -68,14 +70,12 @@ impl Manifest {
                 bail!("checksum mismatched!");
             }
         }
-        Ok(
-            (
-                Self {
-                    file: Arc::new(Mutex::new(file)),
-                },
-                records,
-            )
-        )
+        Ok((
+            Self {
+                file: Arc::new(Mutex::new(file)),
+            },
+            records,
+        ))
     }
 
     pub fn add_record(

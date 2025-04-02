@@ -57,15 +57,13 @@ impl TieredCompactionController {
             let (_, tier) = snapshot.levels.get(tier_id).unwrap();
             upper_size += tier.len();
         }
-        if (upper_size as f64 / snapshot.levels.last().unwrap().1.len() as f64) >
-                (self.options.max_size_amplification_percent as f64 / 100.0)
+        if (upper_size as f64 / snapshot.levels.last().unwrap().1.len() as f64)
+            > (self.options.max_size_amplification_percent as f64 / 100.0)
         {
-            return Some(
-                TieredCompactionTask { 
-                    tiers: snapshot.levels.clone(),
-                    bottom_tier_included: true, 
-                }
-            );
+            return Some(TieredCompactionTask {
+                tiers: snapshot.levels.clone(),
+                bottom_tier_included: true,
+            });
         }
         // size ratio
         let mut pre_size = 0;
@@ -75,34 +73,34 @@ impl TieredCompactionController {
             pre_size += upper.len();
             let (_, lower) = snapshot.levels.get(tier_id + 1).unwrap();
             let lower_size = lower.len();
-            if (lower_size as f64 / pre_size as f64) > size_trigger &&
-                tier_id + 1 > self.options.min_merge_width 
-             {
-                return Some(
-                    TieredCompactionTask { 
-                        tiers: snapshot
+            if (lower_size as f64 / pre_size as f64) > size_trigger
+                && tier_id + 1 > self.options.min_merge_width
+            {
+                return Some(TieredCompactionTask {
+                    tiers: snapshot
                         .levels
                         .iter()
                         .take(tier_id + 1)
                         .cloned()
-                        .collect::<Vec<_>>(), 
-                        bottom_tier_included: false, 
-                    }
-                );
+                        .collect::<Vec<_>>(),
+                    bottom_tier_included: false,
+                });
             }
         }
         // reduce runs
-        let compact_num = snapshot.levels.len().min(self.options.max_merge_width.unwrap_or(usize::MAX));
-        Some(
-            TieredCompactionTask { 
-                tiers: snapshot
+        let compact_num = snapshot
+            .levels
+            .len()
+            .min(self.options.max_merge_width.unwrap_or(usize::MAX));
+        Some(TieredCompactionTask {
+            tiers: snapshot
                 .levels
-                .iter() 
+                .iter()
                 .take(compact_num)
                 .cloned()
                 .collect::<Vec<_>>(),
-                bottom_tier_included: compact_num >= snapshot.levels.len(), }
-        )
+            bottom_tier_included: compact_num >= snapshot.levels.len(),
+        })
     }
 
     pub fn apply_compaction_result(
@@ -113,7 +111,11 @@ impl TieredCompactionController {
     ) -> (LsmStorageState, Vec<usize>) {
         let mut snapshot = snapshot.clone();
         let mut sst_to_remove = Vec::new();
-        let mut remove_map = task.tiers.iter().map(|(x,y)|(*x,y)).collect::<HashMap<_,_>>();
+        let mut remove_map = task
+            .tiers
+            .iter()
+            .map(|(x, y)| (*x, y))
+            .collect::<HashMap<_, _>>();
         let mut new_levels = Vec::new();
         let mut added_new = false;
         for (id, iter) in &snapshot.levels {

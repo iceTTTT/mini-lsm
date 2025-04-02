@@ -200,58 +200,55 @@ impl LsmStorageInner {
                 // concat iter for l1.
                 self.generate_new_sst_from_iter(iter, task.compact_to_bottom_level())
             }
-            CompactionTask::Simple(SimpleLeveledCompactionTask{
-                upper_level, 
-                upper_level_sst_ids,
-                lower_level: _,
-                lower_level_sst_ids,
-                ..
-            }) |
-            CompactionTask::Leveled(LeveledCompactionTask {
+            CompactionTask::Simple(SimpleLeveledCompactionTask {
                 upper_level,
                 upper_level_sst_ids,
                 lower_level: _,
                 lower_level_sst_ids,
                 ..
-            }) => {
-                match upper_level {
-                    None => {
-                        let mut l0_iters = Vec::with_capacity(upper_level_sst_ids.len()); 
-                        for id in upper_level_sst_ids {
-                            let table = state.sstables.get(id).unwrap();
-                            l0_iters.push(Box::new(SsTableIterator::create_and_seek_to_first(table.clone())?));
-                        }
-                        let mut l1_tables = Vec::with_capacity(lower_level_sst_ids.len());
-                        for id in lower_level_sst_ids {
-                            l1_tables.push(state.sstables.get(id).unwrap().clone());
-                        }
-                        let iter = TwoMergeIterator::create(
-                            MergeIterator::create(l0_iters),
-                            SstConcatIterator::create_and_seek_to_first(l1_tables)?
-                        )?;
-                        self.generate_new_sst_from_iter(iter, task.compact_to_bottom_level())
-                    }
-                    Some(_) => {
-                        let mut upper_tables = Vec::with_capacity(upper_level_sst_ids.len());
-                        let mut lower_tables = Vec::with_capacity(lower_level_sst_ids.len());
-                        for id in upper_level_sst_ids {
-                            upper_tables.push(state.sstables.get(id).unwrap().clone());
-                        }
-                        for id in lower_level_sst_ids {
-                            lower_tables.push(state.sstables.get(id).unwrap().clone());
-                        }
-                        let iter = TwoMergeIterator::create(
-                            SstConcatIterator::create_and_seek_to_first(upper_tables)?,
-                            SstConcatIterator::create_and_seek_to_first(lower_tables)?,
-                        )?;
-                        self.generate_new_sst_from_iter(iter, task.compact_to_bottom_level())
-                    }
-                }
-            }
-            CompactionTask::Tiered(TieredCompactionTask{
-                tiers,
+            })
+            | CompactionTask::Leveled(LeveledCompactionTask {
+                upper_level,
+                upper_level_sst_ids,
+                lower_level: _,
+                lower_level_sst_ids,
                 ..
-            }) => {
+            }) => match upper_level {
+                None => {
+                    let mut l0_iters = Vec::with_capacity(upper_level_sst_ids.len());
+                    for id in upper_level_sst_ids {
+                        let table = state.sstables.get(id).unwrap();
+                        l0_iters.push(Box::new(SsTableIterator::create_and_seek_to_first(
+                            table.clone(),
+                        )?));
+                    }
+                    let mut l1_tables = Vec::with_capacity(lower_level_sst_ids.len());
+                    for id in lower_level_sst_ids {
+                        l1_tables.push(state.sstables.get(id).unwrap().clone());
+                    }
+                    let iter = TwoMergeIterator::create(
+                        MergeIterator::create(l0_iters),
+                        SstConcatIterator::create_and_seek_to_first(l1_tables)?,
+                    )?;
+                    self.generate_new_sst_from_iter(iter, task.compact_to_bottom_level())
+                }
+                Some(_) => {
+                    let mut upper_tables = Vec::with_capacity(upper_level_sst_ids.len());
+                    let mut lower_tables = Vec::with_capacity(lower_level_sst_ids.len());
+                    for id in upper_level_sst_ids {
+                        upper_tables.push(state.sstables.get(id).unwrap().clone());
+                    }
+                    for id in lower_level_sst_ids {
+                        lower_tables.push(state.sstables.get(id).unwrap().clone());
+                    }
+                    let iter = TwoMergeIterator::create(
+                        SstConcatIterator::create_and_seek_to_first(upper_tables)?,
+                        SstConcatIterator::create_and_seek_to_first(lower_tables)?,
+                    )?;
+                    self.generate_new_sst_from_iter(iter, task.compact_to_bottom_level())
+                }
+            },
+            CompactionTask::Tiered(TieredCompactionTask { tiers, .. }) => {
                 let mut con_iters = Vec::new();
                 for (_, tier) in tiers {
                     let mut tables = Vec::new();
@@ -259,9 +256,14 @@ impl LsmStorageInner {
                         let table = state.sstables.get(tid).unwrap().clone();
                         tables.push(table);
                     }
-                    con_iters.push(Box::new(SstConcatIterator::create_and_seek_to_first(tables)?));
+                    con_iters.push(Box::new(SstConcatIterator::create_and_seek_to_first(
+                        tables,
+                    )?));
                 }
-                self.generate_new_sst_from_iter(MergeIterator::create(con_iters), task.compact_to_bottom_level())
+                self.generate_new_sst_from_iter(
+                    MergeIterator::create(con_iters),
+                    task.compact_to_bottom_level(),
+                )
             }
             _ => {
                 panic!("not impl")
@@ -310,8 +312,10 @@ impl LsmStorageInner {
                 .collect::<Vec<_>>();
             *self.state.write() = Arc::new(state);
             self.sync_dir()?;
-            self.manifest.as_ref().unwrap().add_record(&state_lock, 
-                ManifestRecord::Compaction(task, new_l1.clone()))?;
+            self.manifest.as_ref().unwrap().add_record(
+                &state_lock,
+                ManifestRecord::Compaction(task, new_l1.clone()),
+            )?;
         }
         // remove files. because no belongs to state.
         for id in l0_tables.iter().chain(l1_tables.iter()) {
@@ -326,13 +330,14 @@ impl LsmStorageInner {
             let guard = self.state.read();
             Arc::clone(&guard)
         };
-        let task = self.compaction_controller.generate_compaction_task(state.as_ref());
+        let task = self
+            .compaction_controller
+            .generate_compaction_task(state.as_ref());
         let Some(task) = task else {
             return Ok(());
         };
         let new_tables = self.compact(&task)?;
-        let remove_table_ids = 
-        {
+        let remove_table_ids = {
             let state_lock = self.state_lock.lock();
             let mut snapshot = self.state.read().as_ref().clone();
             let mut new_table_ids = Vec::with_capacity(new_tables.len());
@@ -341,7 +346,9 @@ impl LsmStorageInner {
                 new_table_ids.push(table.sst_id());
                 snapshot.sstables.insert(table.sst_id(), table);
             }
-            let (mut snapshot, remove_table_ids) = self.compaction_controller.apply_compaction_result(&snapshot, &task, &new_table_ids, false);
+            let (mut snapshot, remove_table_ids) = self
+                .compaction_controller
+                .apply_compaction_result(&snapshot, &task, &new_table_ids, false);
             // remove from hash map
             for id in &remove_table_ids {
                 snapshot.sstables.remove(id);
@@ -350,8 +357,10 @@ impl LsmStorageInner {
             *state = Arc::new(snapshot);
             drop(state);
             self.sync_dir()?;
-            self.manifest.as_ref().unwrap().add_record(&state_lock, ManifestRecord::Compaction(task, 
-                new_table_ids.clone()))?;
+            self.manifest.as_ref().unwrap().add_record(
+                &state_lock,
+                ManifestRecord::Compaction(task, new_table_ids.clone()),
+            )?;
             remove_table_ids
         };
         // remove files
